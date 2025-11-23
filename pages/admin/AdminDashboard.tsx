@@ -51,20 +51,20 @@ export const AdminDashboard: React.FC = () => {
       setDraftTasks(updated);
   };
 
-  const handlePublish = async () => {
-      if(!reviewModalReq) return;
-      try {
-          const token = localStorage.getItem('helix_token');
-          if(!token) return;
-          await api.publishPlan(token, reviewModalReq.id, draftTasks);
-          alert("Plan Published Successfully!");
-          setReviewModalReq(null);
-          // Trigger refresh would go here or context update
-          window.location.reload(); // Simple reload to refresh data
-      } catch(e) {
-          alert("Error publishing plan");
-      }
-  };
+  // Inside AdminDashboard component
+const { publishPlan } = useData(); // Destructure publishPlan from useData
+
+const handlePublish = async () => {
+    if(!reviewModalReq) return;
+    try {
+        await publishPlan(reviewModalReq.id, draftTasks); // Use context function
+        alert("Plan Published Successfully!");
+        setReviewModalReq(null);
+        // Window reload is no longer needed because context updates state automatically!
+    } catch(e) {
+        alert("Error publishing plan");
+    }
+};
 
   return (
     <div className="space-y-6">

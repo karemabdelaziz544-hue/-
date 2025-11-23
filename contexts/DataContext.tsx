@@ -20,6 +20,10 @@ interface DataContextType {
   submitRequest: (data: any) => Promise<void>;
   assignRequestToDoctor: (reqId: string, doctorId: string) => Promise<void>;
   
+  // New Functions for Workflow
+  submitDraftPlan: (reqId: string, tasks: Partial<DailyTask>[]) => Promise<void>;
+  publishPlan: (reqId: string, draftTasks?: Partial<DailyTask>[]) => Promise<void>;
+
   assignTasks: (clientId: string, newTasks: Partial<DailyTask>[], startDate: string, endDate: string) => Promise<void>;
   toggleTaskCompletion: (taskId: string) => Promise<void>;
   
@@ -28,7 +32,6 @@ interface DataContextType {
   getClientTasks: (clientId: string) => DailyTask[];
   getClientStats: (clientId: string, range?: 'week' | 'month') => Promise<ProgressStats[]>;
   
-  // Package & User Management
   getPackages: () => Promise<void>;
   subscribeToPackage: (packageId: string) => Promise<void>;
   createPackage: (data: Partial<Package>) => Promise<void>;
@@ -147,9 +150,25 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const assignRequestToDoctor = async (reqId: string, doctorId: string) => {
     if (!token) return;
-    await api.assignRequestToDoctor(token, reqId, doctorId);
-    const reqData = await api.getRequests(token);
-    setRequests(reqData);
+    const updated = await api.assignRequestToDoctor(token, reqId, doctorId);
+    // Update local state instantly
+    setRequests(prev => prev.map(r => r.id === reqId ? { ...r, status: PlanStatus.PROCESSING, doctorId, doctorName: updated.doctorName } : r));
+  };
+
+  // --- NEW: Submit Draft ---
+  const submitDraftPlan = async (reqId: string, tasks: Partial<DailyTask>[]) => {
+      if(!token) return;
+      await api.submitDraftPlan(token, reqId, tasks);
+      // Update Request Status locally
+      setRequests(prev => prev.map(r => r.id === reqId ? { ...r, status: PlanStatus.PENDING_APPROVAL, draftTasks: tasks } : r));
+  };
+
+  // --- NEW: Publish Plan ---
+  const publishPlan = async (reqId: string, draftTasks?: Partial<DailyTask>[]) => {
+      if(!token) return;
+      await api.publishPlan(token, reqId, draftTasks || []);
+      // Update Request Status locally
+      setRequests(prev => prev.map(r => r.id === reqId ? { ...r, status: PlanStatus.ACTIVE, draftTasks: [] } : r));
   };
 
   const assignTasks = async (clientId: string, newTasks: Partial<DailyTask>[], startDate: string, endDate: string) => {
@@ -242,6 +261,7 @@ export const DataProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <DataContext.Provider value={{
       users, doctors, currentUser, requests, tasks, messages, packages, isLoading,
       login, register, logout, submitRequest, assignRequestToDoctor,
+      submitDraftPlan, publishPlan, // Exported new functions
       assignTasks, toggleTaskCompletion, sendMessage, loadMessages,
       getClientTasks, getClientStats, 
       getPackages, subscribeToPackage, createPackage, deletePackage, updateUser
