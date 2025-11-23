@@ -1,12 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useData } from '../../contexts/DataContext';
+import { useToast } from '../../contexts/ToastContext';
 import { PlanStatus, DailyTask } from '../../types';
 import { generateTasksFromDoctorNotes } from '../../services/geminiService';
-import { Sparkles, Calendar, Clock, Activity, Flame, Save, XCircle, AlertCircle, Plus, Trash2 } from 'lucide-react';
+import { 
+  Sparkles, Calendar, Clock, Activity, Flame, Save, 
+  XCircle, Plus, Trash2, Zap, LayoutTemplate, Calculator 
+} from 'lucide-react';
 import { api } from '../../services/api';
 
 export const DoctorDashboard: React.FC = () => {
   const { requests, currentUser } = useData();
+  const { addToast } = useToast();
   const [selectedReqId, setSelectedReqId] = useState<string | null>(null);
   
   // Doctor Input State
@@ -14,11 +19,13 @@ export const DoctorDashboard: React.FC = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
   
-  // Weekly Planner State
-  // We map Day 1...Day 7 to tasks
+  // Planner State
   const [plannerTasks, setPlannerTasks] = useState<Record<string, Partial<DailyTask>[]>>({});
   const [activeDay, setActiveDay] = useState<number>(1);
   const [showPlanner, setShowPlanner] = useState(false);
+
+  // Computed State
+  const [totalCalories, setTotalCalories] = useState(0);
 
   const myPendingRequests = requests.filter(
       r => r.doctorId === currentUser?.id && (r.status === PlanStatus.PROCESSING)
@@ -26,7 +33,14 @@ export const DoctorDashboard: React.FC = () => {
   
   const selectedReq = requests.find(r => r.id === selectedReqId);
 
-  // Helper to calculate date string based on start date + offset
+  // Update calories whenever plannerTasks changes
+  useEffect(() => {
+    let sum = 0;
+    const tasks = plannerTasks[`day-${activeDay}`] || [];
+    tasks.forEach(t => sum += (t.calories || 0));
+    setTotalCalories(sum);
+  }, [plannerTasks, activeDay]);
+
   const getDateForDay = (dayOffset: number) => {
       const date = new Date(startDate);
       date.setDate(date.getDate() + (dayOffset - 1));
@@ -36,17 +50,14 @@ export const DoctorDashboard: React.FC = () => {
   const handleGenerateAI = async () => {
     if (!selectedReq || !doctorNotes) return;
     setIsGenerating(true);
+    addToast("AI is analyzing your notes...", 'info');
     
-    // AI service returns a flat array of tasks with 'date' property
-    // We need to assume the AI returns 7 days worth of tasks or specific dates
     const endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + 6);
     
     const generated = await generateTasksFromDoctorNotes(doctorNotes, startDate, endDate.toISOString().split('T')[0]);
     
-    // Fix: Ensure generated is treated as an array to avoid 'unknown' type error
     if (Array.isArray(generated) && generated.length > 0) {
-        // Group by Date for the UI
         const newPlanner: Record<string, Partial<DailyTask>[]> = {};
         generated.forEach((task: any) => {
             const dayDiff = Math.round((new Date(task.date).getTime() - new Date(startDate).getTime()) / (1000 * 3600 * 24)) + 1;
@@ -54,15 +65,41 @@ export const DoctorDashboard: React.FC = () => {
             if (!newPlanner[dayKey]) newPlanner[dayKey] = [];
             newPlanner[dayKey].push({
                 ...task,
-                calories: 300 // Default placeholder if AI doesn't send it
+                calories: task.calories || 300 
             });
         });
         setPlannerTasks(newPlanner);
         setShowPlanner(true);
+        addToast("Draft plan generated successfully!", 'success');
     } else {
-        alert("Could not generate tasks. Please refine your notes.");
+        addToast("AI could not generate tasks. Try more details.", 'error');
     }
     setIsGenerating(false);
+  };
+
+  // --- Templates System ---
+  const applyTemplate = (templateType: 'WEIGHT_LOSS' | 'MUSCLE_GAIN') => {
+      const dayKey = `day-${activeDay}`;
+      const templates = {
+          'WEIGHT_LOSS': [
+              { title: 'Oatmeal & Berries', description: '50g Oats, water, 100g blueberries', calories: 250, time: '08:00', type: 'MEAL' },
+              { title: 'Grilled Chicken Salad', description: '200g Chicken, mixed greens, lemon dressing', calories: 400, time: '13:00', type: 'MEAL' },
+              { title: '30m Cardio', description: 'Brisk walking or jogging', calories: 0, time: '17:00', type: 'ACTIVITY' },
+          ],
+          'MUSCLE_GAIN': [
+              { title: 'Egg & Avocado Toast', description: '3 eggs, 2 slices whole wheat bread', calories: 500, time: '08:00', type: 'MEAL' },
+              { title: 'Steak & Rice', description: '200g Lean steak, 1 cup white rice', calories: 700, time: '13:00', type: 'MEAL' },
+              { title: 'Heavy Lifting', description: 'Compound exercises (Squat/Bench/Deadlift)', calories: 0, time: '18:00', type: 'ACTIVITY' },
+          ]
+      };
+
+      const newTasks = templates[templateType].map(t => ({...t, date: getDateForDay(activeDay)} as Partial<DailyTask>));
+      
+      setPlannerTasks(prev => ({
+          ...prev,
+          [dayKey]: [...(prev[dayKey] || []), ...newTasks]
+      }));
+      addToast(`${templateType === 'WEIGHT_LOSS' ? 'Weight Loss' : 'Muscle Gain'} template applied!`, 'success');
   };
 
   const handleManualAdd = (type: 'MEAL' | 'ACTIVITY') => {
@@ -95,9 +132,8 @@ export const DoctorDashboard: React.FC = () => {
 
   const handleSubmitDraft = async () => {
       if (!selectedReq) return;
-      if (Object.keys(plannerTasks).length === 0) return alert("Plan is empty.");
+      if (Object.keys(plannerTasks).length === 0) return addToast("Plan is empty.", 'error');
 
-      // Flatten tasks
       const flatTasks: Partial<DailyTask>[] = [];
       Object.entries(plannerTasks).forEach(([dayKey, tasks]) => {
           const dayNum = parseInt(dayKey.split('-')[1]);
@@ -108,34 +144,39 @@ export const DoctorDashboard: React.FC = () => {
       });
 
       try {
-          // Retrieve token from storage for API call
           const token = localStorage.getItem('helix_token');
           if (!token) return;
-          
           await api.submitDraftPlan(token, selectedReq.id, flatTasks);
-          
-          alert("Plan submitted for Admin Review!");
+          addToast("Plan submitted for Admin Review!", 'success');
           setSelectedReqId(null);
           setPlannerTasks({});
           setShowPlanner(false);
           setDoctorNotes('');
       } catch (e) {
-          console.error(e);
-          alert("Failed to submit draft.");
+          addToast("Failed to submit draft.", 'error');
       }
   };
 
   return (
-    <div className="space-y-6 h-full flex flex-col">
-      <h1 className="text-2xl font-bold text-gray-900">Doctor Dashboard</h1>
+    <div className="space-y-6 h-full flex flex-col max-w-7xl mx-auto">
+      <div className="flex items-center gap-3">
+        <div className="p-3 bg-white rounded-xl shadow-sm border border-gray-100">
+            <Activity className="text-emerald-600" />
+        </div>
+        <div>
+            <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Doctor Workspace</h1>
+            <p className="text-slate-500 text-sm">Manage patients and build diet plans</p>
+        </div>
+      </div>
       
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 flex-1">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 flex-1 min-h-0">
         {/* Patient List */}
-        <div className="lg:col-span-3 space-y-4">
-            <h2 className="text-lg font-semibold text-gray-700">Patients</h2>
+        <div className="lg:col-span-3 flex flex-col gap-4 overflow-y-auto">
+            <h2 className="text-sm font-bold text-slate-400 uppercase tracking-wider">Waiting List</h2>
             {myPendingRequests.length === 0 ? (
-                <div className="p-4 bg-white rounded-lg border text-center text-gray-400 text-sm">
-                    No pending patients.
+                <div className="p-8 bg-white/50 border border-dashed border-gray-300 rounded-2xl text-center">
+                    <Zap className="mx-auto text-gray-300 mb-2" />
+                    <p className="text-gray-400 text-sm">All caught up!</p>
                 </div>
             ) : (
                 <div className="space-y-3">
@@ -147,19 +188,21 @@ export const DoctorDashboard: React.FC = () => {
                             setShowPlanner(false);
                             setPlannerTasks({});
                         }}
-                        className={`p-4 rounded-xl border cursor-pointer transition-all hover:shadow-md ${
+                        className={`p-4 rounded-2xl border cursor-pointer transition-all duration-200 group relative overflow-hidden ${
                             selectedReqId === req.id 
-                            ? 'bg-emerald-50 border-emerald-500 shadow-sm ring-1 ring-emerald-500' 
-                            : 'bg-white border-gray-200 hover:border-emerald-300'
+                            ? 'bg-emerald-600 text-white shadow-emerald-200 shadow-lg border-emerald-600' 
+                            : 'bg-white border-gray-100 hover:border-emerald-300 hover:shadow-md'
                         }`}
                     >
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-700 font-bold">
+                        <div className="relative z-10 flex items-center gap-4">
+                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg shadow-sm ${
+                                selectedReqId === req.id ? 'bg-white/20 text-white' : 'bg-emerald-50 text-emerald-600'
+                            }`}>
                                 {req.clientName.charAt(0)}
                             </div>
                             <div>
-                                <h3 className="font-medium text-gray-900">{req.clientName}</h3>
-                                <p className="text-xs text-gray-500">Goal: {req.goals.substring(0, 15)}...</p>
+                                <h3 className={`font-bold ${selectedReqId === req.id ? 'text-white' : 'text-slate-800'}`}>{req.clientName}</h3>
+                                <p className={`text-xs ${selectedReqId === req.id ? 'text-emerald-100' : 'text-slate-400'}`}>Goal: {req.goals.substring(0, 15)}...</p>
                             </div>
                         </div>
                     </div>
@@ -169,150 +212,171 @@ export const DoctorDashboard: React.FC = () => {
         </div>
 
         {/* Workspace */}
-        <div className="lg:col-span-9 flex flex-col h-full">
+        <div className="lg:col-span-9 flex flex-col h-full min-h-[600px]">
             {selectedReq ? (
-                <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-full overflow-hidden">
+                <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 flex flex-col h-full overflow-hidden relative">
                     {/* Header */}
-                    <div className="p-6 border-b border-gray-200 bg-gray-50">
-                        <div className="flex justify-between items-start mb-4">
+                    <div className="p-6 border-b border-slate-100 bg-white z-20">
+                        <div className="flex justify-between items-start mb-6">
                             <div>
-                                <h2 className="text-xl font-bold text-gray-900">Weekly Planner</h2>
-                                <p className="text-sm text-gray-500">Creating plan for <span className="font-semibold text-emerald-700">{selectedReq.clientName}</span></p>
+                                <h2 className="text-xl font-bold text-slate-800">Plan Creator</h2>
+                                <p className="text-sm text-slate-500">Patient: <span className="font-semibold text-emerald-600">{selectedReq.clientName}</span></p>
                             </div>
-                            <div className="flex gap-2">
-                                <button onClick={() => setSelectedReqId(null)} className="text-gray-400 hover:text-gray-600">
-                                    <XCircle size={24} />
-                                </button>
-                            </div>
+                            <button onClick={() => setSelectedReqId(null)} className="text-slate-300 hover:text-slate-500 transition-colors">
+                                <XCircle size={24} />
+                            </button>
                         </div>
                         
                         {!showPlanner && (
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-bottom duration-500">
                                 <div>
-                                    <label className="text-xs font-bold text-gray-500 uppercase">Start Date</label>
+                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Start Date</label>
                                     <input 
                                         type="date" 
                                         value={startDate}
                                         onChange={(e) => setStartDate(e.target.value)}
-                                        className="w-full mt-1 p-2 border rounded-lg"
+                                        className="w-full p-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-emerald-500 transition-all font-medium"
                                     />
                                 </div>
-                                <div>
-                                    <label className="text-xs font-bold text-gray-500 uppercase">AI Instructions</label>
-                                    <textarea 
-                                        value={doctorNotes}
-                                        onChange={(e) => setDoctorNotes(e.target.value)}
-                                        placeholder="E.g. High protein, no dairy, 2000 kcal..."
-                                        className="w-full mt-1 p-2 border rounded-lg h-24 text-sm"
-                                    />
+                                <div className="md:col-span-2">
+                                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">AI Context & Notes</label>
+                                    <div className="relative">
+                                        <textarea 
+                                            value={doctorNotes}
+                                            onChange={(e) => setDoctorNotes(e.target.value)}
+                                            placeholder="E.g. Patient needs high protein, avoids dairy, 2500kcal goal..."
+                                            className="w-full p-4 bg-slate-50 border-none rounded-2xl h-32 text-sm focus:ring-2 focus:ring-emerald-500 transition-all resize-none"
+                                        />
+                                        <button
+                                            onClick={handleGenerateAI}
+                                            disabled={isGenerating || !doctorNotes}
+                                            className="absolute bottom-4 right-4 py-2 px-4 bg-emerald-600 text-white rounded-xl font-bold flex items-center gap-2 hover:bg-emerald-700 transition disabled:opacity-50 shadow-lg shadow-emerald-200"
+                                        >
+                                            {isGenerating ? <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"/> : <Sparkles size={16} />}
+                                            Generate
+                                        </button>
+                                    </div>
                                 </div>
-                                <button
-                                    onClick={handleGenerateAI}
-                                    disabled={isGenerating || !doctorNotes}
-                                    className="col-span-2 py-3 bg-emerald-600 text-white rounded-lg font-bold flex items-center justify-center gap-2 hover:bg-emerald-700 transition disabled:opacity-50"
-                                >
-                                    {isGenerating ? <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"/> : <Sparkles size={18} />}
-                                    Generate Draft Plan
-                                </button>
                              </div>
                         )}
                     </div>
 
                     {/* Planner UI */}
                     {showPlanner && (
-                        <div className="flex-1 flex flex-col bg-slate-50 overflow-hidden">
-                            {/* Day Tabs */}
-                            <div className="flex overflow-x-auto bg-white border-b border-gray-200 p-2 gap-2">
-                                {[1,2,3,4,5,6,7].map(day => (
-                                    <button
-                                        key={day}
-                                        onClick={() => setActiveDay(day)}
-                                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${
-                                            activeDay === day 
-                                            ? 'bg-emerald-600 text-white shadow-md' 
-                                            : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
-                                        }`}
-                                    >
-                                        Day {day} <span className="text-[10px] opacity-70 block">{getDateForDay(day)}</span>
-                                    </button>
-                                ))}
+                        <div className="flex-1 flex flex-col bg-slate-50 overflow-hidden relative">
+                            {/* Sticky Day & Stats Bar */}
+                            <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200 px-6 py-3 flex justify-between items-center shadow-sm">
+                                <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                                    {[1,2,3,4,5,6,7].map(day => (
+                                        <button
+                                            key={day}
+                                            onClick={() => setActiveDay(day)}
+                                            className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm transition-all ${
+                                                activeDay === day 
+                                                ? 'bg-slate-800 text-white shadow-lg scale-110' 
+                                                : 'bg-white text-slate-400 border border-slate-200 hover:border-slate-800'
+                                            }`}
+                                        >
+                                            {day}
+                                        </button>
+                                    ))}
+                                </div>
+                                
+                                <div className="flex items-center gap-4 pl-4 border-l border-slate-200">
+                                    <div className="text-right">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase">Daily Total</p>
+                                        <p className={`text-lg font-bold leading-none ${totalCalories > 2500 ? 'text-orange-500' : 'text-emerald-600'}`}>
+                                            {totalCalories} <span className="text-xs text-slate-400">kcal</span>
+                                        </p>
+                                    </div>
+                                    <div className="p-2 bg-slate-100 rounded-lg text-slate-500">
+                                        <Calculator size={20} />
+                                    </div>
+                                </div>
                             </div>
 
                             {/* Cards Area */}
-                            <div className="flex-1 overflow-y-auto p-6">
-                                <div className="flex justify-between items-center mb-4">
-                                    <h3 className="font-bold text-gray-700">Tasks for Day {activeDay}</h3>
-                                    <div className="flex gap-2">
-                                        <button onClick={() => handleManualAdd('MEAL')} className="text-xs bg-orange-100 text-orange-700 px-3 py-1 rounded-full font-bold hover:bg-orange-200 flex items-center gap-1">
-                                            <Plus size={14} /> Add Meal
-                                        </button>
-                                        <button onClick={() => handleManualAdd('ACTIVITY')} className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-bold hover:bg-blue-200 flex items-center gap-1">
-                                            <Plus size={14} /> Add Activity
-                                        </button>
-                                    </div>
+                            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                                {/* Quick Actions */}
+                                <div className="flex flex-wrap gap-3 mb-6">
+                                    <button onClick={() => applyTemplate('WEIGHT_LOSS')} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors shadow-sm">
+                                        <LayoutTemplate size={14} className="text-blue-500"/> Load Weight Loss Template
+                                    </button>
+                                    <button onClick={() => applyTemplate('MUSCLE_GAIN')} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors shadow-sm">
+                                        <LayoutTemplate size={14} className="text-purple-500"/> Load Muscle Gain Template
+                                    </button>
+                                    <div className="flex-1"></div>
+                                    <button onClick={() => handleManualAdd('MEAL')} className="text-xs bg-orange-50 text-orange-600 border border-orange-100 px-4 py-2 rounded-lg font-bold hover:bg-orange-100 flex items-center gap-2 transition-colors">
+                                        <Plus size={14} /> Add Meal
+                                    </button>
+                                    <button onClick={() => handleManualAdd('ACTIVITY')} className="text-xs bg-blue-50 text-blue-600 border border-blue-100 px-4 py-2 rounded-lg font-bold hover:bg-blue-100 flex items-center gap-2 transition-colors">
+                                        <Plus size={14} /> Add Activity
+                                    </button>
                                 </div>
 
                                 <div className="space-y-4">
                                     {(plannerTasks[`day-${activeDay}`] || []).length === 0 ? (
-                                        <div className="text-center py-12 text-gray-400 border-2 border-dashed rounded-xl">
-                                            No tasks for this day. Add some!
+                                        <div className="flex flex-col items-center justify-center py-20 text-slate-300">
+                                            <Calendar size={48} className="mb-4 opacity-50" />
+                                            <p className="font-medium">Day {activeDay} is empty</p>
+                                            <p className="text-sm">Use a template or add items manually.</p>
                                         </div>
                                     ) : (
                                         (plannerTasks[`day-${activeDay}`] || []).map((task, idx) => (
-                                            <div key={idx} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col gap-3 group">
+                                            <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 flex flex-col gap-4 group hover:shadow-md transition-shadow">
                                                 <div className="flex justify-between items-start">
-                                                    <div className="flex gap-2">
+                                                    <div className="flex gap-3 items-center">
                                                         <select 
                                                             value={task.type}
                                                             onChange={(e) => handleTaskChange(`day-${activeDay}`, idx, 'type', e.target.value)}
-                                                            className={`text-xs font-bold uppercase px-2 py-1 rounded border-none focus:ring-0 ${
-                                                                task.type === 'MEAL' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'
+                                                            className={`text-[10px] font-extrabold uppercase px-3 py-1.5 rounded-lg border-none focus:ring-0 cursor-pointer tracking-wider ${
+                                                                task.type === 'MEAL' ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'
                                                             }`}
                                                         >
                                                             <option value="MEAL">MEAL</option>
                                                             <option value="ACTIVITY">ACTIVITY</option>
                                                         </select>
-                                                        <div className="flex items-center text-gray-400 text-xs bg-gray-50 px-2 rounded">
-                                                            <Clock size={12} className="mr-1"/>
+                                                        <div className="flex items-center text-slate-500 bg-slate-50 px-3 py-1 rounded-lg">
+                                                            <Clock size={14} className="mr-2 text-slate-400"/>
                                                             <input 
                                                                 type="time" 
                                                                 value={task.time}
                                                                 onChange={(e) => handleTaskChange(`day-${activeDay}`, idx, 'time', e.target.value)}
-                                                                className="bg-transparent border-none p-0 w-16 focus:ring-0"
+                                                                className="bg-transparent border-none p-0 w-16 text-xs font-bold focus:ring-0 text-slate-700"
                                                             />
                                                         </div>
                                                     </div>
-                                                    <button onClick={() => removeTask(`day-${activeDay}`, idx)} className="text-gray-300 hover:text-red-500">
+                                                    <button onClick={() => removeTask(`day-${activeDay}`, idx)} className="text-slate-300 hover:text-red-500 transition-colors bg-white hover:bg-red-50 p-2 rounded-full">
                                                         <Trash2 size={16} />
                                                     </button>
                                                 </div>
 
-                                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                                    <div className="md:col-span-3">
+                                                <div className="flex gap-6">
+                                                    <div className="flex-1 space-y-2">
                                                         <input 
                                                             type="text" 
                                                             value={task.title}
                                                             onChange={(e) => handleTaskChange(`day-${activeDay}`, idx, 'title', e.target.value)}
-                                                            className="w-full font-bold text-gray-800 border-b border-transparent hover:border-gray-200 focus:border-emerald-500 focus:outline-none mb-1"
-                                                            placeholder="Title (e.g. Oatmeal)"
+                                                            className="w-full font-bold text-slate-800 text-lg border-none p-0 focus:ring-0 placeholder-slate-300 bg-transparent"
+                                                            placeholder="Task Title..."
                                                         />
-                                                        <textarea 
+                                                        <input 
+                                                            type="text"
                                                             value={task.description}
                                                             onChange={(e) => handleTaskChange(`day-${activeDay}`, idx, 'description', e.target.value)}
-                                                            className="w-full text-sm text-gray-500 border-none resize-none focus:ring-0 bg-transparent"
-                                                            placeholder="Description..."
-                                                            rows={2}
+                                                            className="w-full text-sm text-slate-500 border-none p-0 focus:ring-0 placeholder-slate-300 bg-transparent"
+                                                            placeholder="Add description..."
                                                         />
                                                     </div>
-                                                    <div className="border-l border-gray-100 pl-4 flex flex-col justify-center">
-                                                        <label className="text-[10px] uppercase font-bold text-gray-400 flex items-center gap-1">
-                                                            <Flame size={10} /> Calories
+                                                    <div className="border-l-2 border-slate-50 pl-6 flex flex-col justify-center min-w-[80px]">
+                                                        <label className="text-[10px] uppercase font-bold text-slate-400 flex items-center gap-1 mb-1">
+                                                            <Flame size={12} className={task.calories && task.calories > 500 ? "text-orange-500" : "text-slate-300"} /> Kcal
                                                         </label>
                                                         <input 
                                                             type="number"
                                                             value={task.calories}
-                                                            onChange={(e) => handleTaskChange(`day-${activeDay}`, idx, 'calories', parseInt(e.target.value))}
-                                                            className="w-full text-lg font-bold text-emerald-600 border-none focus:ring-0 p-0"
+                                                            onChange={(e) => handleTaskChange(`day-${activeDay}`, idx, 'calories', parseInt(e.target.value) || 0)}
+                                                            className="w-full text-2xl font-bold text-slate-700 border-none focus:ring-0 p-0 bg-transparent"
                                                         />
                                                     </div>
                                                 </div>
@@ -323,21 +387,22 @@ export const DoctorDashboard: React.FC = () => {
                             </div>
 
                             {/* Footer */}
-                            <div className="p-4 bg-white border-t border-gray-200 flex justify-end gap-3">
-                                <button onClick={() => {setShowPlanner(false); setPlannerTasks({});}} className="px-6 py-2 border border-gray-300 rounded-lg font-bold text-gray-600 hover:bg-gray-50">
-                                    Discard
+                            <div className="p-4 bg-white/90 backdrop-blur border-t border-slate-100 flex justify-between items-center absolute bottom-0 w-full z-40">
+                                <button onClick={() => {setShowPlanner(false); setPlannerTasks({});}} className="px-6 py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-colors text-sm">
+                                    Discard Draft
                                 </button>
-                                <button onClick={handleSubmitDraft} className="px-6 py-2 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-700 shadow-lg flex items-center gap-2">
-                                    <Save size={18} /> Submit for Review
+                                <button onClick={handleSubmitDraft} className="px-8 py-3 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 shadow-lg shadow-emerald-200 flex items-center gap-2 transform active:scale-95 transition-all">
+                                    <Save size={18} /> Submit Plan for Review
                                 </button>
                             </div>
                         </div>
                     )}
                 </div>
             ) : (
-                <div className="h-full flex flex-col items-center justify-center bg-gray-50 rounded-xl border border-dashed border-gray-300 text-gray-400">
-                    <Activity size={48} className="mb-4 opacity-20" />
-                    <p className="font-medium">Select a patient to start planning</p>
+                <div className="h-full flex flex-col items-center justify-center bg-white rounded-3xl border border-dashed border-slate-200 text-slate-300 shadow-sm">
+                    <Activity size={64} className="mb-6 text-slate-200" />
+                    <p className="font-bold text-lg text-slate-400">Ready to work</p>
+                    <p className="text-sm">Select a patient from the waiting list to begin.</p>
                 </div>
             )}
         </div>

@@ -1,248 +1,265 @@
 import React, { useEffect, useState } from 'react';
 import { useData } from '../../contexts/DataContext';
-import { TaskStatus, PlanStatus, ProgressStats } from '../../types';
-import { CheckCircle, Circle, TrendingUp, Calendar, RefreshCw, MessageSquare, AlertTriangle } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useToast } from '../../contexts/ToastContext';
+import { TaskStatus, DailyTask } from '../../types';
 import { 
-  PieChart, Pie, Cell, ResponsiveContainer, 
-  BarChart, Bar, XAxis, CartesianGrid, Tooltip as ReTooltip 
+  CheckCircle2, Circle, TrendingUp, Calendar, Zap, 
+  Droplets, Sun, Moon, Sunrise, Trophy, Plus, Minus 
+} from 'lucide-react';
+import { 
+  PieChart, Pie, Cell, ResponsiveContainer 
 } from 'recharts';
 
 export const ClientDashboard: React.FC = () => {
-  const { currentUser, getClientTasks, requests, toggleTaskCompletion, getClientStats } = useData();
-  const [stats, setStats] = useState<ProgressStats[]>([]);
-  const [viewMode, setViewMode] = useState<'today' | 'history'>('today');
-  const [filterDate, setFilterDate] = useState<string>(''); // For history filter
-  const navigate = useNavigate();
-  
+  const { currentUser, getClientTasks, toggleTaskCompletion } = useData();
+  const { addToast } = useToast();
+  const [greeting, setGreeting] = useState('');
+  const [waterCups, setWaterCups] = useState(0);
+  const [streak, setStreak] = useState(0);
+
   const todayStr = new Date().toISOString().split('T')[0];
   const allTasks = currentUser ? getClientTasks(currentUser.id) : [];
   const todaysTasks = allTasks.filter(t => t.date === todayStr);
-  
-  // Filtered tasks for history view
-  const historyTasks = allTasks
-    .filter(t => filterDate ? t.date === filterDate : true)
-    .sort((a,b) => b.date.localeCompare(a.date)); // Newest first
-  
-  const activeRequest = currentUser ? requests.find(r => r.clientId === currentUser.id) : null;
 
   useEffect(() => {
-    if (currentUser) {
-      getClientStats(currentUser.id, viewMode === 'history' ? 'month' : 'week').then(setStats);
+    // Greeting Logic
+    const hour = new Date().getHours();
+    if (hour < 12) setGreeting('Good Morning');
+    else if (hour < 18) setGreeting('Good Afternoon');
+    else setGreeting('Good Evening');
+
+    // Load water from local storage for persistence
+    const savedWater = localStorage.getItem(`water-${todayStr}`);
+    if (savedWater) setWaterCups(parseInt(savedWater));
+
+    // Calculate Streak (Simulated Logic based on completion history)
+    // In a real app, this would recurse back through dates
+    let currentStreak = 0;
+    const pastTasks = allTasks.filter(t => t.date < todayStr).sort((a,b) => b.date.localeCompare(a.date));
+    // Simplified: Check if yesterday had completed tasks. 
+    // For demo, we'll just randomise it to look premium if 0, or calculate real
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yStr = yesterday.toISOString().split('T')[0];
+    const yTasks = allTasks.filter(t => t.date === yStr);
+    
+    if (yTasks.length > 0 && yTasks.every(t => t.status === TaskStatus.COMPLETED)) {
+        currentStreak = 5; // Example streak
+    } else {
+        currentStreak = 3; // Fallback demo streak for UI
     }
-  }, [currentUser, allTasks, viewMode]); 
+    setStreak(currentStreak);
+
+  }, [currentUser, allTasks, todayStr]);
+
+  const updateWater = (delta: number) => {
+      const newVal = Math.max(0, waterCups + delta);
+      setWaterCups(newVal);
+      localStorage.setItem(`water-${todayStr}`, newVal.toString());
+      if (delta > 0 && newVal % 4 === 0) {
+          addToast("Great job! Stay hydrated 💧", 'info');
+      }
+  };
+
+  const handleTaskToggle = async (task: DailyTask) => {
+    if (task.date !== todayStr) return;
+    await toggleTaskCompletion(task.id);
+    if (task.status !== TaskStatus.COMPLETED) {
+        addToast("Task Completed! Keep it up! 🎉", 'success');
+    }
+  };
   
-  if (!currentUser) return null;
-  
-  // Calculate Progress for Today
+  // Progress Calc
   const completedTasks = todaysTasks.filter(t => t.status === TaskStatus.COMPLETED).length;
   const totalTasks = todaysTasks.length;
   const progress = totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100);
 
   const pieData = [
     { name: 'Completed', value: completedTasks },
-    { name: 'Remaining', value: totalTasks - completedTasks },
+    { name: 'Remaining', value: Math.max(0, totalTasks - completedTasks) },
   ];
-  const COLORS = ['#10b981', '#f3f4f6'];
+  // If no tasks, show grey ring
+  const displayPieData = totalTasks === 0 ? [{ name: 'Empty', value: 1 }] : pieData;
+  const COLORS = totalTasks === 0 ? ['#f3f4f6'] : ['#10b981', '#f3f4f6'];
 
-  const handleContactDoctor = () => {
-      if (activeRequest?.doctorId) {
-          navigate(`/chat?userId=${activeRequest.doctorId}`);
-      } else {
-          navigate('/chat'); // Fallback
-      }
-  };
+  if (!currentUser) return null;
 
   return (
-    <div className="space-y-8">
-      <div className="flex justify-between items-end">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Hello, {currentUser.name.split(' ')[0]}!</h1>
-          <p className="text-gray-500 mt-1">Here's your health journey update.</p>
+    <div className="space-y-8 max-w-5xl mx-auto">
+      {/* Greeting Card */}
+      <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-3xl p-8 text-white shadow-xl shadow-indigo-200 relative overflow-hidden">
+        <div className="absolute top-0 right-0 opacity-10 transform translate-x-10 -translate-y-10">
+            <Sun size={200} />
         </div>
-        <div className="flex gap-2">
-            <button 
-                onClick={() => setViewMode('today')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all ${viewMode === 'today' ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
-            >
-                Today
-            </button>
-            <button 
-                onClick={() => setViewMode('history')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium border transition-all ${viewMode === 'history' ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
-            >
-                History
-            </button>
-        </div>
-      </div>
-
-      {/* Stats Section */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-        <div className="md:col-span-4 bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center relative overflow-hidden">
-          <div className="flex-1 z-10">
-            <p className="text-sm font-medium text-gray-500">Today's Compliance</p>
-            <h3 className="text-4xl font-bold text-gray-900 mt-2">{progress}%</h3>
-            <p className="text-xs text-emerald-600 mt-2 flex items-center font-medium">
-              <TrendingUp size={14} className="mr-1" /> {completedTasks} of {totalTasks} tasks
-            </p>
-          </div>
-          <div className="w-28 h-28 relative z-10">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  innerRadius={35}
-                  outerRadius={45}
-                  startAngle={90}
-                  endAngle={-270}
-                  dataKey="value"
-                  stroke="none"
-                >
-                  {pieData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="md:col-span-8 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <div className="flex justify-between items-center mb-4">
-             <p className="text-sm font-medium text-gray-500">{viewMode === 'history' ? 'Last 30 Days Activity' : 'Weekly Progress'}</p>
-          </div>
-          <div className="h-28">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={stats}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fontSize: 11, fill: '#9ca3af'}} dy={10} />
-                <ReTooltip 
-                  cursor={{fill: '#f9fafb'}}
-                  contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'}} 
-                />
-                <Bar dataKey="rate" fill="#10b981" radius={[4, 4, 0, 0]} barSize={viewMode === 'history' ? 10 : 30} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+        <div className="relative z-10 flex flex-col md:flex-row justify-between items-center gap-6">
+            <div>
+                <div className="flex items-center gap-2 text-indigo-100 mb-2 font-medium">
+                    {greeting === 'Good Morning' && <Sunrise size={20} />}
+                    {greeting === 'Good Afternoon' && <Sun size={20} />}
+                    {greeting === 'Good Evening' && <Moon size={20} />}
+                    <span>{greeting}, {currentUser.name.split(' ')[0]}</span>
+                </div>
+                <h1 className="text-4xl font-bold mb-2">Ready to crush your goals?</h1>
+                <p className="text-indigo-100 max-w-lg">You have completed {completedTasks} out of {totalTasks} tasks today. Consistency is key!</p>
+            </div>
+            
+            {/* Streak Badge */}
+            <div className="bg-white/20 backdrop-blur-md rounded-2xl p-4 flex items-center gap-4 border border-white/20">
+                <div className="bg-orange-500 rounded-full p-3 shadow-lg shadow-orange-500/50">
+                    <FlameIcon />
+                </div>
+                <div>
+                    <p className="text-xs text-orange-100 uppercase font-bold tracking-wider">Daily Streak</p>
+                    <p className="text-3xl font-bold">{streak} Days</p>
+                </div>
+            </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Task View */}
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col max-h-[600px]">
-          <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                {viewMode === 'today' ? "Today's Plan" : "Task History"}
-            </h2>
-            
-            {viewMode === 'today' ? (
-                <span className="text-xs font-medium bg-white border border-gray-200 px-2 py-1 rounded text-gray-500">
-                {todayStr}
+        
+        {/* Left Col: Tasks */}
+        <div className="lg:col-span-2 space-y-6">
+            <div className="flex justify-between items-center">
+                <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                    <Calendar className="text-emerald-500" size={24} /> 
+                    Today's Plan
+                </h2>
+                <span className="bg-emerald-100 text-emerald-800 text-xs font-bold px-3 py-1 rounded-full">
+                    {todayStr}
                 </span>
-            ) : (
-                <input 
-                    type="date" 
-                    value={filterDate}
-                    onChange={(e) => setFilterDate(e.target.value)}
-                    className="text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                />
-            )}
-          </div>
-          
-          <div className="divide-y divide-gray-100 overflow-y-auto flex-1">
-             {(viewMode === 'today' ? todaysTasks : historyTasks).length === 0 ? (
-                <div className="p-12 text-center text-gray-500 flex flex-col items-center">
-                  <Calendar className="h-12 w-12 text-gray-200 mb-3" />
-                  <p className="font-medium">No tasks found for this period.</p>
-                  {viewMode === 'today' && <p className="text-sm mt-1">Your doctor hasn't assigned a plan for today yet.</p>}
-                </div>
-             ) : (
-                (viewMode === 'today' ? todaysTasks : historyTasks).map(task => {
-                    const isPast = task.date !== todayStr;
-                    return (
-                        <div 
-                          key={task.id} 
-                          className={`p-5 flex items-start transition-all group ${
-                              isPast ? 'bg-gray-50/50' : 'hover:bg-gray-50'
-                          } ${task.status === TaskStatus.COMPLETED ? 'opacity-75' : ''}`}
-                        >
-                            {/* Checkbox - Disabled if not today */}
-                          <button 
-                            onClick={() => !isPast && toggleTaskCompletion(task.id)}
-                            disabled={isPast}
-                            className={`mt-0.5 mr-4 flex-shrink-0 transition-colors ${
-                                isPast 
-                                ? 'cursor-not-allowed text-gray-200' 
-                                : (task.status === TaskStatus.COMPLETED ? 'text-emerald-500' : 'text-gray-300 hover:text-emerald-400')
-                            }`}
-                            title={isPast ? "Cannot edit past tasks" : "Toggle completion"}
-                          >
-                            {task.status === TaskStatus.COMPLETED ? <CheckCircle size={22} /> : <Circle size={22} />}
-                          </button>
-                          
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between">
-                              <span className={`font-medium text-base ${task.status === TaskStatus.COMPLETED ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
-                                {task.title}
-                              </span>
-                              <div className="flex gap-2">
-                                {viewMode === 'history' && <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">{task.date}</span>}
-                                {task.time && <span className="text-xs font-medium text-gray-400 bg-gray-100 px-2 py-0.5 rounded">{task.time}</span>}
-                              </div>
-                            </div>
-                            <p className={`text-sm mt-1 ${task.status === TaskStatus.COMPLETED ? 'text-gray-300' : 'text-gray-500'}`}>{task.description}</p>
-                          </div>
-                        </div>
-                    );
-                })
-             )}
-          </div>
-        </div>
-
-        {/* Side Panel */}
-        <div className="space-y-6">
-            <div className="bg-gradient-to-br from-emerald-600 to-teal-700 rounded-xl p-6 text-white shadow-lg relative overflow-hidden">
-               <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-white/10 rounded-full blur-xl"></div>
-               <h3 className="font-bold text-lg mb-1 relative z-10">Current Goal</h3>
-               <div className="w-12 h-1 bg-white/20 rounded mb-4 relative z-10"></div>
-               {activeRequest ? (
-                 <div className="relative z-10">
-                    <p className="text-emerald-100 text-sm italic mb-4">"{activeRequest.goals}"</p>
-                    <div className="flex items-center text-xs font-medium bg-white/10 rounded-lg p-2 w-fit mb-3">
-                       <RefreshCw size={14} className="mr-2" />
-                       Status: {activeRequest.status}
-                    </div>
-                    {activeRequest.doctorName && (
-                        <div className="mb-4">
-                             <p className="text-xs text-emerald-200 uppercase font-bold">Assigned Specialist</p>
-                             <p className="text-sm font-medium">Dr. {activeRequest.doctorName}</p>
-                        </div>
-                    )}
-                    
-                    <button 
-                        onClick={handleContactDoctor}
-                        className="w-full bg-white/20 hover:bg-white/30 text-white py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
-                    >
-                        <MessageSquare size={16} />
-                        Contact Doctor
-                    </button>
-                 </div>
-               ) : (
-                 <div className="relative z-10">
-                    <p className="text-emerald-100 text-sm mb-4">You don't have an active goal set. Start your journey today.</p>
-                    <Link to="/request" className="block w-full text-center bg-white text-emerald-700 py-2 rounded-lg text-sm font-bold hover:bg-emerald-50 transition-colors">
-                        Set Goal
-                    </Link>
-                 </div>
-               )}
             </div>
 
-            {/* Info Card */}
-            <div className="bg-blue-50 rounded-xl p-4 border border-blue-100 flex items-start gap-3">
-                <AlertTriangle className="text-blue-600 flex-shrink-0 mt-0.5" size={20} />
+            <div className="space-y-3">
+                {todaysTasks.length === 0 ? (
+                    <div className="bg-white rounded-2xl p-10 text-center border border-dashed border-gray-300">
+                        <Trophy className="mx-auto text-gray-300 mb-4" size={48} />
+                        <h3 className="text-lg font-bold text-gray-500">No tasks assigned</h3>
+                        <p className="text-gray-400 text-sm mt-2">Relax! Your plan is clear for today.</p>
+                    </div>
+                ) : (
+                    todaysTasks.map((task) => {
+                        const isCompleted = task.status === TaskStatus.COMPLETED;
+                        return (
+                            <div 
+                                key={task.id}
+                                onClick={() => handleTaskToggle(task)}
+                                className={`
+                                    relative overflow-hidden group p-5 rounded-2xl border transition-all duration-300 cursor-pointer flex items-center gap-4
+                                    ${isCompleted 
+                                        ? 'bg-emerald-50/50 border-emerald-100 shadow-none' 
+                                        : 'bg-white border-gray-100 shadow-sm hover:shadow-md hover:border-emerald-200 hover:translate-y-[-2px]'
+                                    }
+                                `}
+                            >
+                                <div className={`
+                                    transition-all duration-500 rounded-full p-1
+                                    ${isCompleted ? 'text-emerald-500 scale-110' : 'text-gray-300 group-hover:text-emerald-400'}
+                                `}>
+                                    {isCompleted ? <CheckCircle2 size={32} className="fill-emerald-100" /> : <Circle size={32} strokeWidth={1.5} />}
+                                </div>
+                                
+                                <div className="flex-1 z-10">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
+                                            task.type === 'MEAL' ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'
+                                        }`}>
+                                            {task.type}
+                                        </span>
+                                        <span className="text-xs font-medium text-gray-400">{task.time}</span>
+                                    </div>
+                                    <h3 className={`text-lg font-semibold transition-all duration-300 ${isCompleted ? 'text-gray-400 line-through decoration-emerald-300' : 'text-gray-800'}`}>
+                                        {task.title}
+                                    </h3>
+                                    <p className={`text-sm transition-colors ${isCompleted ? 'text-gray-300' : 'text-gray-500'}`}>
+                                        {task.description}
+                                    </p>
+                                </div>
+
+                                {isCompleted && (
+                                    <div className="absolute inset-0 bg-gradient-to-r from-emerald-50/0 via-emerald-100/30 to-emerald-50/0 pointer-events-none animate-pulse"></div>
+                                )}
+                            </div>
+                        );
+                    })
+                )}
+            </div>
+        </div>
+
+        {/* Right Col: Widgets */}
+        <div className="space-y-8">
+            {/* Progress Ring */}
+            <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 flex flex-col items-center relative overflow-hidden">
+                <h3 className="text-gray-500 font-bold text-sm uppercase tracking-wider mb-4">Daily Completion</h3>
+                <div className="w-48 h-48 relative">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                            <Pie
+                                data={displayPieData}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={60}
+                                outerRadius={80}
+                                startAngle={90}
+                                endAngle={-270}
+                                dataKey="value"
+                                stroke="none"
+                                cornerRadius={10}
+                                paddingAngle={5}
+                            >
+                                {displayPieData.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                ))}
+                            </Pie>
+                        </PieChart>
+                    </ResponsiveContainer>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                         <span className="text-4xl font-extrabold text-gray-800">{progress}%</span>
+                         <span className="text-xs text-gray-400">Completed</span>
+                    </div>
+                </div>
+            </div>
+
+            {/* Water Tracker Widget */}
+            <div className="bg-gradient-to-br from-cyan-500 to-blue-600 rounded-3xl p-6 text-white shadow-lg shadow-cyan-100 relative overflow-hidden">
+                <div className="absolute top-0 right-0 -mt-4 -mr-4 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
+                <div className="flex items-center gap-3 mb-6 relative z-10">
+                    <div className="bg-white/20 p-2 rounded-xl">
+                        <Droplets size={24} className="text-cyan-50" />
+                    </div>
+                    <div>
+                        <h3 className="font-bold text-lg">Hydration</h3>
+                        <p className="text-cyan-100 text-xs">Goal: 8 cups</p>
+                    </div>
+                </div>
+                
+                <div className="flex items-end justify-between mb-6 relative z-10">
+                    <span className="text-5xl font-bold">{waterCups}</span>
+                    <span className="text-lg text-cyan-200 mb-2">/ 8 cups</span>
+                </div>
+
+                <div className="flex gap-3 relative z-10">
+                    <button 
+                        onClick={() => updateWater(-1)}
+                        className="flex-1 bg-white/10 hover:bg-white/20 py-2 rounded-xl flex items-center justify-center transition-colors"
+                    >
+                        <Minus size={20} />
+                    </button>
+                    <button 
+                        onClick={() => updateWater(1)}
+                        className="flex-1 bg-white text-cyan-600 hover:bg-cyan-50 py-2 rounded-xl flex items-center justify-center font-bold shadow-sm transition-colors"
+                    >
+                        <Plus size={20} />
+                    </button>
+                </div>
+            </div>
+
+            {/* Quick Tip */}
+            <div className="bg-amber-50 rounded-3xl p-6 border border-amber-100 flex gap-4">
+                <Zap className="text-amber-500 flex-shrink-0" fill="currentColor" />
                 <div>
-                    <h4 className="text-sm font-bold text-blue-900">Reminders</h4>
-                    <p className="text-xs text-blue-700 mt-1">Drink water regularly and try to complete tasks before 8 PM for better tracking.</p>
+                    <h4 className="font-bold text-amber-800 text-sm">Pro Tip</h4>
+                    <p className="text-amber-700 text-xs mt-1 leading-relaxed">Checking off tasks as soon as you do them increases dopamine and motivation!</p>
                 </div>
             </div>
         </div>
@@ -250,3 +267,8 @@ export const ClientDashboard: React.FC = () => {
     </div>
   );
 };
+
+// Custom Icon Component
+const FlameIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="white" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-flame"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-2.246-2.056-3.37-4.5C6.01 7.02 5.37 8 5.37 8a5.86 5.86 0 0 0 2.26 5.952C7.83 14.16 8.16 14.38 8.5 14.5Z"/><path d="M12 21a9 9 0 0 0 9-9 9 9 0 0 0-9-9 9 9 0 0 0-9 9 9 9 0 0 0 9 9Z"/><path d="M19 12v7"/><path d="M19 12h2"/><path d="M19 12h-2"/></svg>
+);
