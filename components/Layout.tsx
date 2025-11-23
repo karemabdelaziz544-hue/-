@@ -1,19 +1,18 @@
-
 import React from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
-import { useHelix } from '../context/HelixContext';
-import { LayoutDashboard, Users, FilePlus, LogOut, MessageSquare } from 'lucide-react';
+import { useData } from '../contexts/DataContext'; // تصحيح المسار
+import { LayoutDashboard, Users, FilePlus, LogOut } from 'lucide-react';
 import ChatWidget from './ChatWidget';
 
 export default function Layout() {
-  const { currentUser, logout } = useHelix();
+  const { currentUser, logout } = useData(); // استخدام useData بدلاً من useHelix
   const navigate = useNavigate();
 
-  if (!currentUser) {
-    // Protect routes
-    React.useEffect(() => { navigate('/login'); }, []);
-    return null;
-  }
+  React.useEffect(() => { 
+    if (!currentUser) navigate('/login'); 
+  }, [currentUser, navigate]);
+
+  if (!currentUser) return null;
 
   const handleLogout = () => {
     logout();
@@ -56,7 +55,7 @@ export default function Layout() {
 
         <div className="p-4 border-t border-slate-100">
           <div className="flex items-center space-x-3 mb-4 px-2">
-            <img src={currentUser.avatar} alt="User" className="w-10 h-10 rounded-full" />
+            <img src={currentUser.avatar || `https://ui-avatars.com/api/?name=${currentUser.name}`} alt="User" className="w-10 h-10 rounded-full" />
             <div>
               <p className="text-sm font-semibold text-slate-800">{currentUser.name}</p>
               <p className="text-xs text-slate-500 capitalize">{currentUser.role.toLowerCase()}</p>
@@ -70,11 +69,10 @@ export default function Layout() {
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 md:ml-64 p-8 overflow-y-auto">
+      <main className="flex-1 md:ml-64 p-8 overflow-y-auto h-full">
         <Outlet />
       </main>
 
-      {/* Floating Chat Widget (Global) */}
       <ChatWidget />
     </div>
   );

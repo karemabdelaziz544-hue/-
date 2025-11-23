@@ -1,10 +1,10 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-// Change 1: Import DataProvider instead of HelixProvider
+// Change: Use HashRouter instead of BrowserRouter for better preview support
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'; 
 import { DataProvider } from './contexts/DataContext'; 
 import Layout from './components/Layout';
 import Login from './pages/Login';
-import { ClientDashboard } from './pages/client/ClientDashboard'; // Ensure correct import path
+import { ClientDashboard } from './pages/client/ClientDashboard';
 import { DoctorDashboard } from './pages/doctor/DoctorDashboard';
 import { AdminDashboard } from './pages/admin/AdminDashboard';
 import { Register } from './pages/Register';
@@ -14,9 +14,9 @@ import { ChatPage } from './pages/ChatPage';
 
 export default function App() {
   return (
-    // Change 2: Wrap everything in DataProvider
     <DataProvider>
-      <BrowserRouter>
+      {/* استخدام HashRouter يحل مشكلة الشاشة البيضاء في بيئة التطوير */}
+      <HashRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
@@ -29,11 +29,14 @@ export default function App() {
             <Route path="admin" element={<AdminDashboard />} />
             <Route path="chat" element={<ChatPage />} />
             
-            {/* Redirect root to login */}
+            {/* التوجيه الافتراضي */}
             <Route index element={<Navigate to="/login" replace />} />
           </Route>
+
+          {/* هام جداً: مسار احتياطي لأي رابط غير معروف يعيد المستخدم لصفحة الدخول */}
+          <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
-      </BrowserRouter>
+      </HashRouter>
     </DataProvider>
   );
 }
