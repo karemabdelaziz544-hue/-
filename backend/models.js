@@ -35,7 +35,7 @@ const planRequestSchema = new mongoose.Schema({
   client: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   clientName: { type: String },
   doctor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }, // Assigned Doctor
-  status: { type: String, enum: ['NONE', 'REQUESTED', 'PROCESSING', 'ACTIVE'], default: 'REQUESTED' },
+  status: { type: String, enum: ['NONE', 'REQUESTED', 'PROCESSING', 'PENDING_APPROVAL', 'ACTIVE'], default: 'REQUESTED' },
   requestDate: { type: Date, default: Date.now },
   
   // Detailed Form Data
@@ -47,7 +47,17 @@ const planRequestSchema = new mongoose.Schema({
   gender: String,
   activityLevel: String,
   allergies: String,
-  preferredMeals: String
+  preferredMeals: String,
+
+  // Draft System
+  draftTasks: [{
+    date: String,
+    title: String,
+    description: String,
+    type: String,
+    time: String,
+    calories: Number
+  }]
 });
 
 const dailyTaskSchema = new mongoose.Schema({
@@ -57,7 +67,8 @@ const dailyTaskSchema = new mongoose.Schema({
   description: { type: String },
   type: { type: String, enum: ['MEAL', 'ACTIVITY'], required: true },
   status: { type: String, enum: ['PENDING', 'COMPLETED'], default: 'PENDING' },
-  time: { type: String }
+  time: { type: String },
+  calories: { type: Number }
 });
 
 const chatMessageSchema = new mongoose.Schema({

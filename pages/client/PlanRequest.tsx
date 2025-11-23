@@ -22,22 +22,30 @@ export const PlanRequestPage: React.FC = () => {
   });
   
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Redirect if no package
+  // Redirect if no package or expired
   useEffect(() => {
-      if (currentUser && !currentUser.activePackage) {
-          // Short delay to allow context to load
-          const timer = setTimeout(() => navigate('/packages'), 100);
-          return () => clearTimeout(timer);
+      if (currentUser) {
+           if (!currentUser.activePackage) {
+              const timer = setTimeout(() => navigate('/packages'), 100);
+              return () => clearTimeout(timer);
+           }
+           // Check expiration
+           if (currentUser.packageEndDate && new Date(currentUser.packageEndDate) < new Date()) {
+               setError("Your subscription has expired. Please renew to request a new plan.");
+           }
       }
   }, [currentUser, navigate]);
 
   if (!currentUser) return null;
-  if (!currentUser.activePackage) return (
+  
+  if (!currentUser.activePackage || error) return (
       <div className="text-center p-10">
           <Lock className="mx-auto text-gray-300 mb-4" size={48} />
           <h2 className="text-xl font-bold text-gray-900">Subscription Required</h2>
-          <p className="text-gray-500">Please subscribe to a package to request a plan.</p>
+          <p className="text-gray-500 mb-4">{error || "Please subscribe to a package to request a plan."}</p>
+          <button onClick={() => navigate('/packages')} className="px-4 py-2 bg-emerald-600 text-white rounded-lg">View Packages</button>
       </div>
   );
 
@@ -62,10 +70,11 @@ export const PlanRequestPage: React.FC = () => {
         </div>
         <h2 className="text-xl font-bold text-gray-900">Request Status: {existingRequest.status}</h2>
         <p className="text-gray-500 mt-2">
-          You have already submitted a request. 
           {existingRequest.status === PlanStatus.PROCESSING 
-            ? ' Your plan is currently with our specialists.' 
-            : ' An admin will review it shortly.'}
+            ? 'Your plan is currently being designed by Dr. ' + (existingRequest.doctorName || 'Specialist') 
+            : existingRequest.status === PlanStatus.PENDING_APPROVAL
+            ? 'Your plan is awaiting final quality review by the Admin.'
+            : 'You have submitted a request. An admin will assign a doctor shortly.'}
         </p>
       </div>
     );

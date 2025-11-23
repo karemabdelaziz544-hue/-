@@ -8,7 +8,8 @@ export enum PlanStatus {
   NONE = 'NONE',
   REQUESTED = 'REQUESTED',
   PROCESSING = 'PROCESSING', // Assigned to doctor
-  ACTIVE = 'ACTIVE'
+  PENDING_APPROVAL = 'PENDING_APPROVAL', // Doctor submitted, waiting for Admin
+  ACTIVE = 'ACTIVE' // Admin approved
 }
 
 export enum TaskStatus {
@@ -44,6 +45,7 @@ export interface DailyTask {
   type: 'MEAL' | 'ACTIVITY';
   status: TaskStatus;
   time?: string; // e.g., "08:00 AM"
+  calories?: number;
 }
 
 export interface PlanRequest {
@@ -65,6 +67,9 @@ export interface PlanRequest {
   activityLevel?: string;
   allergies?: string;
   preferredMeals?: string;
+
+  // Draft Data (Before Approval)
+  draftTasks?: Partial<DailyTask>[];
 }
 
 export interface ChatMessage {

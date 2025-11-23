@@ -204,7 +204,51 @@ export const api = {
     return res.json();
   },
 
+  // REPLACED: assignTasks with Draft Logic support in components mostly, but keeping for legacy or direct assigns if needed.
+  // Updated to support draft submission
+  submitDraftPlan: async (token: string, reqId: string, tasks: Partial<DailyTask>[]) => {
+      if (USE_MOCK_DATA) {
+          const req = mockRequests.find(r => r.id === reqId);
+          if (req) {
+              req.draftTasks = tasks;
+              req.status = PlanStatus.PENDING_APPROVAL;
+          }
+          return req;
+      }
+      const res = await fetch(`${API_URL}/requests/${reqId}/draft`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ tasks })
+      });
+      return res.json();
+  },
+
+  publishPlan: async (token: string, reqId: string, draftTasks: Partial<DailyTask>[]) => {
+      if (USE_MOCK_DATA) {
+          const req = mockRequests.find(r => r.id === reqId);
+          if (req) {
+              const newTasks: DailyTask[] = draftTasks.map(t => ({
+                  ...t,
+                  id: Math.random().toString(36).substr(2, 9),
+                  clientId: req.clientId,
+                  status: TaskStatus.PENDING
+              } as DailyTask));
+              mockTasks.push(...newTasks);
+              req.status = PlanStatus.ACTIVE;
+              req.draftTasks = [];
+          }
+          return { success: true };
+      }
+      const res = await fetch(`${API_URL}/requests/${reqId}/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ draftTasks })
+      });
+      return res.json();
+  },
+
   assignTasks: async (token: string, clientId: string, tasks: Partial<DailyTask>[], startDate: string, endDate: string) => {
+    // Legacy direct assignment kept for compatibility if needed, though strictly we use draft now
     if (USE_MOCK_DATA) {
         const createdTasks: DailyTask[] = [];
         tasks.forEach(t => {

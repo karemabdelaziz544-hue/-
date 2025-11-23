@@ -197,6 +197,7 @@ app.get('/api/requests', authenticate, async (req, res) => {
     } else if (req.user.role === 'DOCTOR') {
         filter = { doctor: req.user.id };
     }
+    // Admin sees all
     const requests = await PlanRequest.find(filter).populate('doctor', 'name').sort({requestDate: -1});
     res.json(requests.map(r => ({ 
         ...r.toObject(), 
@@ -212,8 +213,14 @@ app.get('/api/requests', authenticate, async (req, res) => {
 app.post('/api/requests', authenticate, async (req, res) => {
   try {
     const user = await User.findById(req.user.id);
-    // User must have a package to request (optional logic check)
-    // if (!user.activePackage) return res.status(400).json({message: 'No active subscription'});
+    
+    // Strict Package Check
+    if (!user.activePackage) {
+        return res.status(403).json({message: 'Active subscription required'});
+    }
+    if (new Date(user.packageEndDate) < new Date()) {
+        return res.status(403).json({message: 'Subscription expired'});
+    }
 
     const newReq = await PlanRequest.create({
       client: req.user.id,
@@ -242,36 +249,60 @@ app.put('/api/requests/:id/assign', authenticate, async (req, res) => {
   }
 });
 
-// Tasks
-app.post('/api/tasks', authenticate, async (req, res) => {
+// --- NEW ROUTE: Doctor Submits Draft ---
+app.put('/api/requests/:id/draft', authenticate, async (req, res) => {
   try {
-    if (req.user.role === 'CLIENT') return res.status(403).send('Unauthorized');
-    const { clientId, tasks } = req.body; 
-    
-    if (!tasks || !Array.isArray(tasks) || tasks.length === 0) {
-        return res.status(400).json({ message: 'No tasks provided' });
-    }
+    if (req.user.role !== 'DOCTOR') return res.status(403).send('Doctors only');
+    const { tasks } = req.body; // draftTasks array
 
-    // Strict creation: expect tasks to have dates already
-    const tasksToInsert = tasks.map(t => ({
-        client: clientId,
-        date: t.date,
-        title: t.title,
-        description: t.description,
-        type: t.type,
-        time: t.time,
-        status: 'PENDING'
-    }));
-
-    const createdTasks = await DailyTask.insertMany(tasksToInsert);
-    await PlanRequest.findOneAndUpdate({ client: clientId }, { status: 'ACTIVE' });
-
-    res.json(createdTasks.map(t => ({ ...t.toObject(), id: t._id })));
+    const updated = await PlanRequest.findByIdAndUpdate(
+        req.params.id,
+        { 
+            draftTasks: tasks, 
+            status: 'PENDING_APPROVAL' 
+        },
+        { new: true }
+    );
+    res.json({ ...updated.toObject(), id: updated._id });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
+// --- NEW ROUTE: Admin Publishes Plan ---
+app.post('/api/requests/:id/publish', authenticate, async (req, res) => {
+  try {
+    if (req.user.role !== 'ADMIN') return res.status(403).send('Admins only');
+    
+    const request = await PlanRequest.findById(req.params.id);
+    if (!request || !request.draftTasks) return res.status(404).send('Request or draft not found');
+
+    const { draftTasks } = req.body; // Allow admin edits to override DB draft if passed
+
+    const finalTasks = (draftTasks || request.draftTasks).map(t => ({
+        client: request.client,
+        date: t.date,
+        title: t.title,
+        description: t.description,
+        type: t.type,
+        time: t.time,
+        calories: t.calories,
+        status: 'PENDING'
+    }));
+
+    await DailyTask.insertMany(finalTasks);
+    
+    request.status = 'ACTIVE';
+    request.draftTasks = []; // Clear draft after publish
+    await request.save();
+
+    res.json({ success: true, request: { ...request.toObject(), id: request._id } });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Tasks
 app.get('/api/tasks', authenticate, async (req, res) => {
   try {
     const { clientId, date } = req.query;

@@ -1,14 +1,18 @@
 import React, { useState } from 'react';
 import { useData } from '../../contexts/DataContext';
-import { PlanStatus, UserRole } from '../../types';
-import { Users, FileText, Search, Stethoscope, MessageSquare, Package as PackageIcon, Settings, Trash2, Edit2 } from 'lucide-react';
+import { PlanStatus, DailyTask } from '../../types';
+import { Users, FileText, Search, Package as PackageIcon, Settings, Trash2, CheckCircle, Clock, Edit2, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { api } from '../../services/api';
 
 export const AdminDashboard: React.FC = () => {
   const { requests, users, doctors, assignRequestToDoctor, packages, createPackage, deletePackage, updateUser } = useData();
-  const [activeTab, setActiveTab] = useState<'requests' | 'clients' | 'packages' | 'users'>('requests');
+  const [activeTab, setActiveTab] = useState<'requests' | 'reviews' | 'clients' | 'packages' | 'users'>('requests');
   const [searchTerm, setSearchTerm] = useState('');
   const [assignModal, setAssignModal] = useState<string | null>(null);
+  const [reviewModalReq, setReviewModalReq] = useState<any | null>(null);
+  const [draftTasks, setDraftTasks] = useState<Partial<DailyTask>[]>([]);
+  
   const navigate = useNavigate();
 
   // Package Form State
@@ -17,6 +21,7 @@ export const AdminDashboard: React.FC = () => {
   const clients = users.filter(u => u.role === 'CLIENT' && u.name.toLowerCase().includes(searchTerm.toLowerCase()));
   const allUsers = users.filter(u => u.name.toLowerCase().includes(searchTerm.toLowerCase()));
   const allRequests = requests;
+  const pendingReviews = requests.filter(r => r.status === PlanStatus.PENDING_APPROVAL);
 
   const handleAssign = async (reqId: string, doctorId: string) => {
       await assignRequestToDoctor(reqId, doctorId);
@@ -35,6 +40,32 @@ export const AdminDashboard: React.FC = () => {
       }
   };
 
+  const openReview = (req: any) => {
+      setReviewModalReq(req);
+      setDraftTasks(req.draftTasks || []);
+  };
+
+  const handleDraftEdit = (index: number, field: string, value: any) => {
+      const updated = [...draftTasks];
+      updated[index] = { ...updated[index], [field]: value };
+      setDraftTasks(updated);
+  };
+
+  const handlePublish = async () => {
+      if(!reviewModalReq) return;
+      try {
+          const token = localStorage.getItem('helix_token');
+          if(!token) return;
+          await api.publishPlan(token, reviewModalReq.id, draftTasks);
+          alert("Plan Published Successfully!");
+          setReviewModalReq(null);
+          // Trigger refresh would go here or context update
+          window.location.reload(); // Simple reload to refresh data
+      } catch(e) {
+          alert("Error publishing plan");
+      }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -43,6 +74,13 @@ export const AdminDashboard: React.FC = () => {
         <div className="flex bg-white rounded-lg p-1 shadow-sm border border-gray-200">
           <button onClick={() => setActiveTab('requests')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'requests' ? 'bg-emerald-100 text-emerald-700' : 'text-gray-600 hover:bg-gray-50'}`}>
             <div className="flex items-center gap-2"><FileText size={16} /> Requests</div>
+          </button>
+           <button onClick={() => setActiveTab('reviews')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'reviews' ? 'bg-emerald-100 text-emerald-700' : 'text-gray-600 hover:bg-gray-50'}`}>
+            <div className="flex items-center gap-2">
+                <CheckCircle size={16} /> 
+                Reviews
+                {pendingReviews.length > 0 && <span className="ml-2 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{pendingReviews.length}</span>}
+            </div>
           </button>
           <button onClick={() => setActiveTab('clients')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'clients' ? 'bg-emerald-100 text-emerald-700' : 'text-gray-600 hover:bg-gray-50'}`}>
              <div className="flex items-center gap-2"><Users size={16} /> Clients</div>
@@ -82,15 +120,44 @@ export const AdminDashboard: React.FC = () => {
                          <td className="px-6 py-4"><span className="px-2 text-xs rounded-full bg-blue-100 text-blue-800">{req.status}</span></td>
                          <td className="px-6 py-4 text-sm text-gray-500">{req.doctorName || 'Unassigned'}</td>
                          <td className="px-6 py-4 text-right">
-                            <button onClick={() => setAssignModal(req.id)} className="text-indigo-600 hover:underline text-sm">
-                                {req.status === 'PROCESSING' ? 'Reassign' : 'Assign'}
-                            </button>
+                             {req.status === 'REQUESTED' && (
+                                <button onClick={() => setAssignModal(req.id)} className="text-indigo-600 hover:underline text-sm font-bold">
+                                    Assign Doctor
+                                </button>
+                             )}
+                            {(req.status === 'PROCESSING' || req.status === 'PENDING_APPROVAL') && (
+                                <span className="text-gray-400 text-sm">Assigned</span>
+                            )}
                          </td>
                        </tr>
                      ))}
                    </tbody>
                </table>
             </div>
+          )}
+
+          {activeTab === 'reviews' && (
+              <div className="space-y-4">
+                  <h2 className="text-lg font-semibold text-gray-700 mb-4">Pending Doctor Drafts</h2>
+                  {pendingReviews.length === 0 ? (
+                      <p className="text-gray-500">No plans waiting for approval.</p>
+                  ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {pendingReviews.map(req => (
+                              <div key={req.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50 flex justify-between items-center">
+                                  <div>
+                                      <h3 className="font-bold text-gray-800">{req.clientName}</h3>
+                                      <p className="text-sm text-gray-500">Drafted by: Dr. {req.doctorName}</p>
+                                      <p className="text-xs text-emerald-600 mt-1">{req.draftTasks?.length || 0} tasks proposed</p>
+                                  </div>
+                                  <button onClick={() => openReview(req)} className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-emerald-700">
+                                      Review & Publish
+                                  </button>
+                              </div>
+                          ))}
+                      </div>
+                  )}
+              </div>
           )}
 
           {activeTab === 'packages' && (
@@ -192,7 +259,6 @@ export const AdminDashboard: React.FC = () => {
                              {/* @ts-ignore */}
                              <p className="text-xs text-emerald-600">{c.activePackage ? c.activePackage.name : 'No Plan'}</p>
                          </div>
-                         <button onClick={() => navigate(`/chat?userId=${c.id}`)} className="p-2 bg-emerald-50 text-emerald-600 rounded-full"><MessageSquare size={16}/></button>
                      </div>
                  ))}
              </div>
@@ -212,6 +278,70 @@ export const AdminDashboard: React.FC = () => {
                       ))}
                   </div>
                   <button onClick={() => setAssignModal(null)} className="w-full mt-4 py-2 text-gray-500">Cancel</button>
+              </div>
+          </div>
+      )}
+
+      {/* Review Modal */}
+      {reviewModalReq && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-xl w-3/4 max-h-[90vh] flex flex-col overflow-hidden">
+                  <div className="p-6 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                      <h3 className="font-bold text-lg">Reviewing Plan for {reviewModalReq.clientName}</h3>
+                      <button onClick={() => setReviewModalReq(null)}><X size={24} className="text-gray-400" /></button>
+                  </div>
+                  
+                  <div className="flex-1 overflow-y-auto p-6 bg-slate-50">
+                      {draftTasks.length === 0 ? (
+                          <p>No tasks found.</p>
+                      ) : (
+                          // Group by Date for review
+                           Object.entries(draftTasks.reduce((acc:any, task:any) => {
+                                (acc[task.date] = acc[task.date] || []).push(task);
+                                return acc;
+                           }, {})).map(([date, tasks]: [string, any]) => (
+                               <div key={date} className="mb-6 bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+                                   <h4 className="font-bold border-b border-gray-100 pb-2 mb-2">{date}</h4>
+                                   <div className="space-y-3">
+                                       {tasks.map((task: any, idx: number) => (
+                                           // Find real index in draftTasks
+                                           <div key={idx} className="flex gap-4 items-start border-b border-gray-50 pb-2 last:border-0">
+                                               <span className={`text-[10px] uppercase font-bold px-1 rounded ${task.type === 'MEAL' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{task.type}</span>
+                                               <div className="flex-1 grid grid-cols-2 gap-2">
+                                                   <input 
+                                                     value={task.title} 
+                                                     onChange={(e) => {
+                                                         const realIdx = draftTasks.indexOf(task);
+                                                         handleDraftEdit(realIdx, 'title', e.target.value);
+                                                     }}
+                                                     className="font-semibold text-sm border-gray-200 rounded" 
+                                                   />
+                                                    <input 
+                                                     value={task.description} 
+                                                     onChange={(e) => {
+                                                         const realIdx = draftTasks.indexOf(task);
+                                                         handleDraftEdit(realIdx, 'description', e.target.value);
+                                                     }}
+                                                     className="text-sm text-gray-500 border-gray-200 rounded" 
+                                                   />
+                                               </div>
+                                               <div className="text-xs text-gray-400 whitespace-nowrap">
+                                                   {task.calories} kcal
+                                               </div>
+                                           </div>
+                                       ))}
+                                   </div>
+                               </div>
+                           ))
+                      )}
+                  </div>
+
+                  <div className="p-6 border-t border-gray-200 bg-white flex justify-end gap-3">
+                      <button onClick={() => setReviewModalReq(null)} className="px-4 py-2 text-gray-500 font-bold">Cancel</button>
+                      <button onClick={handlePublish} className="px-6 py-2 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 flex items-center gap-2">
+                          <CheckCircle size={18} /> Approve & Publish
+                      </button>
+                  </div>
               </div>
           </div>
       )}
